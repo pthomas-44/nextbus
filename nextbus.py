@@ -104,7 +104,7 @@ if os.path.exists(STOP_TIMES_FILENAME):
         print(f"Prochains bus de la ligne 5 :")
         for horaire in horaires_5:
             print(f" - {horaire}")
-        print("RAPPEL : Le bus 5 met ~15min de plus à arriver à Valmy que la correspondance bus 86 + métro D.")
+        print("RAPPEL : Le bus 5 met entre 15 et 20 minutes de plus à arriver à Valmy que la correspondance bus 86 + métro D.")
     else:
         print("Aucun horaire à venir pour cet arrêt et ces lignes aujourd'hui.")
 else:
