@@ -4,6 +4,7 @@ import io
 import csv
 import base64
 import os
+import sys
 from datetime import datetime
 
 # Paramètres de configuration
@@ -33,11 +34,11 @@ def download_and_extract_zip(url, headers, extract_to_filename):
                     with zip_ref.open(extract_to_filename) as extracted_file:
                         return filter_stop_times(extracted_file)
                 else:
-                    print(f"Le fichier {extract_to_filename} est introuvable dans l'archive.")
+                    sys.stderr.write(f"Le fichier {extract_to_filename} est introuvable dans l'archive.\n")
         except zipfile.BadZipFile:
-            print("Erreur : Le fichier téléchargé n'est pas une archive ZIP valide.")
+            sys.stderr.write("Erreur : Le fichier téléchargé n'est pas une archive ZIP valide.\n")
     else:
-        print(f"Erreur lors du téléchargement de l'archive. Code HTTP: {response.status_code}, Message: {response.text}")
+        sys.stderr.write(f"Erreur lors du téléchargement de l'archive. Code HTTP: {response.status_code}, Message: {response.text}\n")
     return []
 
 def filter_stop_times(extracted_file):
@@ -56,9 +57,9 @@ def save_stop_times(filtered_rows, filename):
             writer = csv.DictWriter(output_file, fieldnames=filtered_rows[0].keys())
             writer.writeheader()
             writer.writerows(filtered_rows)
-        print(f"Fichier {filename} enregistré.")
+        sys.stderr.write(f"Fichier {filename} enregistré.")
     else:
-        print(f"Aucun horaire à sauvegarder dans {filename}.")
+        sys.stderr.write(f"Aucun horaire à sauvegarder dans {filename}.")
 
 def get_next_buses(stop_id, file_path):
     """Récupère et affiche les trois prochains horaires de bus pour un arrêt donné."""
@@ -85,7 +86,7 @@ def should_download_new_archive():
         last_modified_time = os.path.getmtime(STOP_TIMES_FILENAME)
         last_modified_date = datetime.fromtimestamp(last_modified_time).date()
         if last_modified_date == datetime.now().date():
-            print("Le fichier stop_times.txt a été modifié aujourd'hui. Utilisation du fichier existant.")
+            sys.stderr.write("Le fichier stop_times.txt a été modifié aujourd'hui. Utilisation du fichier existant.")
             return False
     return True
 
@@ -108,4 +109,4 @@ if os.path.exists(STOP_TIMES_FILENAME):
     else:
         print("Aucun horaire à venir pour cet arrêt et ces lignes aujourd'hui.")
 else:
-    print("Le fichier stop_times.txt est introuvable.")
+    sys.stderr.write("Le fichier stop_times.txt est introuvable.\n")
