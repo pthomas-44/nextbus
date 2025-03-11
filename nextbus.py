@@ -12,7 +12,7 @@ PASSWORD = "demo4dev"
 ZIP_URL = "https://download.data.grandlyon.com/files/rdata/tcl_sytral.tcltheorique/GTFS_TCL.ZIP"
 STOP_ID = "2010"
 TRIP_ID_PREFIXES = ["86A_18_2_040AM", "5A_34_2_046AB"]  # Préfixes des trip_id
-STOP_TIMES_FILENAME = "stop_times.txt"
+STOP_TIMES_FILENAME = os.path.expanduser("~/goinfre/stop_times.txt")  # Chemin du fichier
 
 # Encodage en base64 pour l'authentification
 def get_base64_auth_header(username, password):
@@ -56,7 +56,7 @@ def save_stop_times(filtered_rows, filename):
             writer = csv.DictWriter(output_file, fieldnames=filtered_rows[0].keys())
             writer.writeheader()
             writer.writerows(filtered_rows)
-        print(f"Fichier {filename} enregistré à la racine.")
+        print(f"Fichier {filename} enregistré.")
     else:
         print(f"Aucun horaire à sauvegarder dans {filename}.")
 
@@ -90,7 +90,7 @@ def should_download_new_archive():
     return True
 
 if should_download_new_archive():
-    filtered_rows = download_and_extract_zip(ZIP_URL, headers, STOP_TIMES_FILENAME)
+    filtered_rows = download_and_extract_zip(ZIP_URL, headers, "stop_times.txt")
     save_stop_times(filtered_rows, STOP_TIMES_FILENAME)
 
 if os.path.exists(STOP_TIMES_FILENAME):
