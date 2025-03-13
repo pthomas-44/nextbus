@@ -1,0 +1,15 @@
+{
+  "name": "nextbus",
+  "description": "Show time remaining until next bus arrives at 42 Lyon campus.",
+  "uuid": "nextbus@42toolbar",
+  "shell-version": [
+    "42"
+  ],
+  "gettext-domain": "example@gjs.guide",
+  "version": 1,
+  "session-modes" : [
+    "user",
+    "unlock-dialog"
+  ],
+  "url": "https://github.com/pthomas-44/nextbus"
+}
