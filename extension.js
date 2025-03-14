@@ -25,26 +25,68 @@ const ExtensionUtils = imports.misc.extensionUtils;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
-
 const _ = ExtensionUtils.gettext;
+let metadata;
+
 
 // Chemin du fichier JSON contenant les horaires des bus
-const csvPath = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
+const jsonPath = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
 
-// Préfixes des identifiants de trajet
-const tripPrefixes = {
-    '5toCLV': '5A_34_1_046AB',
-    '5toPM': '5A_34_2_046AB',
-    '86toTDS': '86A_18_1_040AM',
-    '86toGDL': '86A_18_2_040AM',
-};
+// Identifiants des trajets de bus
+const trips = [
+    { id: '5A_34_1_046AB', name: '5 - Charbonnières Les Verrières' },
+    { id: '5A_34_2_046AB', name: '5 - Pont Mouton' },
+    { id: '86A_18_1_040AM', name: '86 - La Tour de Salvagny Chambettes' },
+    { id: '86A_18_2_040AM', name: '86 - Gorge de Loup' }
+];
 
-let metadata;
+/**
+ * Classe représentant un élément de trajet.
+ */
+class TripItem {
+    constructor(tripId, title) {
+        this.tripId = tripId;
+        this.titleItem = new PopupMenu.PopupSeparatorMenuItem(title);
+        this.timeItems = [];
+        for (let i = 0; i < 3; i++)
+            this.timeItems.push(new PopupMenu.PopupMenuItem('N/A min'));
+        this.activated = true;
+    }
+
+    getNextBusTimes() {
+        if (!GLib.file_test(jsonPath, GLib.FileTest.EXISTS))
+            return [];
+
+        const fileContents = GLib.file_get_contents(jsonPath)[1];
+        let busData;
+
+        try {
+            busData = JSON.parse(fileContents);
+        } catch (e) {
+            throw new Error('Erreur de parsing du JSON');
+        }
+
+        const currentTime = new Date();
+        const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+
+        const nextTimes = busData
+            .filter(bus => bus.trip_id === this.tripId)
+            .map(bus => {
+                const [hours, minutes] = bus.arrival_time.split(':').map(Number);
+                return hours * 60 + minutes;
+            })
+            .filter(arrivalMinutes => arrivalMinutes > currentMinutes)
+            .sort((a, b) => a - b)
+            .slice(0, 3)
+            .map(arrivalMinutes => arrivalMinutes - currentMinutes); // Conversion en minutes restantes
+
+        for (let i = 0; i < 3; i++)
+            this.timeItems[i].label.text = nextTimes[i] !== undefined ? nextTimes[i] + " min" : "N/A min";
+    }
+}
 
 /**
  * Lit un flux de données et retourne son contenu sous forme de promesse.
- * @param {Gio.DataInputStream} stream - Flux de données à lire.
- * @returns {Promise<string>} Contenu du flux.
  */
 async function readStream(stream) {
     return new Promise((resolve, reject) => {
@@ -62,8 +104,6 @@ async function readStream(stream) {
 
 /**
  * Exécute une commande shell de manière asynchrone et retourne son résultat
- * @param {string} commandLine - Ligne de commande à exécuter
- * @param {function} callback - Fonction de retour avec (ok, stdout, stderr, exit_status)
  */
 async function spawnCommandLineAsync(commandLine, callback = () => {}) {
     let success, argv, pid, stdin, stdout, stderr;
@@ -107,116 +147,43 @@ function fetchBusStopTimes(nextBusButton) {
 }
 
 /**
- * Récupère les horaires des bus depuis un fichier JSON en fonction d'un tripIdPrefix.
- * @param {string} jsonPath - Chemin vers le fichier JSON contenant les horaires.
- * @param {string} tripIdPrefix - Préfixe de l'ID de trajet pour filtrer les horaires.
- * @returns {number[]} Liste des minutes restantes jusqu'aux prochains bus.
- */
-function getNextBusTimes(jsonPath, tripIdPrefix) {
-    if (!GLib.file_test(jsonPath, GLib.FileTest.EXISTS))
-        return [];
-
-    const fileContents = GLib.file_get_contents(jsonPath)[1];
-    let busData;
-
-    try {
-        busData = JSON.parse(fileContents);
-    } catch (e) {
-        throw new Error('Erreur de parsing du JSON');
-    }
-
-    const currentTime = new Date();
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-
-    return busData
-        .filter(bus => bus.trip_id.startsWith(tripIdPrefix))
-        .map(bus => {
-            const [hours, minutes] = bus.arrival_time.split(':').map(Number);
-            return hours * 60 + minutes;
-        })
-        .filter(arrivalMinutes => arrivalMinutes > currentMinutes) // On garde les horaires futurs
-        .sort((a, b) => a - b) // Tri croissant
-        .slice(0, 3) // On limite aux 3 premiers bus
-        .map(arrivalMinutes => arrivalMinutes - currentMinutes); // Conversion en minutes restantes
-}
-
-/**
  * Classe représentant le bouton du menu GNOME pour afficher les horaires des bus.
  */
 const NextBusButton = GObject.registerClass(
-    class NextBusButton extends PanelMenu.Button {
-        _init() {
-            super._init(0.0, _('NextBusButton'));
-    
-            this.add_child(new St.Label({ text: _('LES BUS') }));
-    
-            this.busItems = this.createBusItems();
-    
-            // Ajouter les items au menu
-            Object.values(this.busItems).forEach(items => {
-                items.forEach(item => {
-                    this.menu.addMenuItem(item);
-                });
-            });
-    
-            this.updateBusTimes(); // Mise à jour immédiate des horaires des bus
-        }
-    
-        /**
-         * Crée les éléments du menu pour chaque ligne de bus.
-         * @returns {Object} Objet contenant les éléments de menu pour chaque ligne de bus.
-         */
-        createBusItems() {
-            return {
-                '86 - Gorge de Loup': [
-                    new PopupMenu.PopupSeparatorMenuItem(_('86 - Gorge de Loup')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min'))
-                ],
-                '5 - Pont Mouton': [
-                    new PopupMenu.PopupSeparatorMenuItem(_('5 - Pont Mouton')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min'))
-                ],
-                '86 - La Tour de Salvagny Chambettes': [
-                    new PopupMenu.PopupSeparatorMenuItem(_('86 - La Tour de Salvagny Chambettes')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min'))
-                ],
-                '5 - Charbonnières Les Verrières': [
-                    new PopupMenu.PopupSeparatorMenuItem(_('5 - Charbonnières Les Verrières')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min')),
-                    new PopupMenu.PopupMenuItem(_('N/A min'))
-                ]
-            };
-        }
-    
-        /**
-         * Met à jour les horaires des bus dans le menu.
-         */
-        updateBusTimes() {
-            const busTimes = {
-                '86 - Gorge de Loup': getNextBusTimes(csvPath, tripPrefixes['86toGDL']),
-                '5 - Pont Mouton': getNextBusTimes(csvPath, tripPrefixes['5toPM']),
-                '86 - La Tour de Salvagny Chambettes': getNextBusTimes(csvPath, tripPrefixes['86toTDS']),
-                '5 - Charbonnières Les Verrières': getNextBusTimes(csvPath, tripPrefixes['5toCLV'])
-            };
-    
-            // Mettre à jour les éléments du menu avec les nouveaux horaires
-            Object.keys(this.busItems).forEach((key, index) => {
-                const times = busTimes[key];
-                if (times.length > 0) {
-                    this.busItems[key].slice(1).forEach((item, i) => {
-                        item.label.text = `${times[i] || 'N/A'} min`;
-                    });
-                }
-            });
-        }
-    });
+class NextBusButton extends PanelMenu.Button {
+    _init() {
+        super._init(0.0, _('NextBusButton'));
+
+        this.add_child(new St.Label({ text: _('LES BUS') }));
+
+        // Crée les item pour chaque trajet
+        this.busItems = [];
+        for(let i = 0; i < trips.length; i++)
+            this.busItems.push(new TripItem(trips[i].id, trips[i].name));
+
+        // Affiche les premières horaires dans la toolbar
+
+        // Affiche les items dans le menu
+        this.busItems.forEach(item => {
+            if (item.activated)
+                this.addTripItemToMenu(item);
+        });
+
+        this.updateBusTimes(); // Mise à jour immédiate des horaires des bus
+    }
+
+    addTripItemToMenu(tripItem) {
+        this.menu.addMenuItem(tripItem.titleItem);
+        tripItem.timeItems.forEach(item => {
+            this.menu.addMenuItem(item);
+        });
+    }
+
+    updateBusTimes() {
+        for (let i = 0; i < this.busItems.length; i++)
+            this.busItems[i].getNextBusTimes();
+    }
+});
 
 /**
  * Classe représentant l'extension GNOME.
