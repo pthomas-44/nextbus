@@ -76,11 +76,11 @@ class TripItem {
         if (!GLib.file_test(jsonPath, GLib.FileTest.EXISTS))
             return [];
 
-        const fileContents = GLib.file_get_contents(jsonPath)[1];
+        const [isOk, fileContent] = GLib.file_get_contents(jsonPath); 
         let busData;
 
         try {
-            busData = JSON.parse(fileContents);
+            busData = JSON.parse(fileContent);
         } catch (e) {
             throw new Error('Erreur de parsing du JSON');
         }
@@ -179,7 +179,7 @@ class NextTripPreview {
         this.signInStatusLabel = new St.Label({ text: busLabel });
         this.signInStatusLabel.set_style('font-weight: bold; font-size: 15px;');
 
-        this.timeLabel = new St.Label({ text: "X min" });
+        this.timeLabel = new St.Label({ text: "N/A min" });
         this.timeLabel.set_style('color: white; font-weight: bold; font-size: 15px;');
 
         busbox.add_child(this.signInStatusLabel);
