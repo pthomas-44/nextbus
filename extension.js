@@ -162,6 +162,7 @@ class NextBusButton extends PanelMenu.Button {
             this.busItems.push(new TripItem(trips[i].id, trips[i].name));
 
         // Affiche les premières horaires dans la toolbar
+        
 
         // Affiche les items dans le menu
         this.busItems.forEach(item => {
