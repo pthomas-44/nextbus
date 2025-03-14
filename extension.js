@@ -32,25 +32,44 @@ let metadata;
 // Chemin du fichier JSON contenant les horaires des bus
 const jsonPath = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
 
+class Trip {
+    constructor(id, name, tag) {
+        this.id = id;
+        this.name = name;
+        this.tag = tag;
+    }
+}
+
 // Identifiants des trajets de bus
 const trips = [
-    { id: '5A_34_1_046AB', name: '5 - Charbonnières Les Verrières' },
-    { id: '5A_34_2_046AB', name: '5 - Pont Mouton' },
-    { id: '86A_18_1_040AM', name: '86 - La Tour de Salvagny Chambettes' },
-    { id: '86A_18_2_040AM', name: '86 - Gorge de Loup' }
+    new Trip('86A_18_2_040AM', '86 - Gorge de Loup', '86'),
+    // new Trip('86A_18_1_040AM', '86 - La Tour de Salvagny Chambettes', '86'),
+    new Trip('5A_34_2_046AB', '5 - Pont Mouton', '5'),
+    // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5'),
 ];
+
 
 /**
  * Classe représentant un élément de trajet.
  */
 class TripItem {
-    constructor(tripId, title) {
-        this.tripId = tripId;
-        this.titleItem = new PopupMenu.PopupSeparatorMenuItem(title);
+    constructor(trip) {
+        this.trip = trip;
+        this.activated = true;
+
+        this.init_menu();
+        this.nextTimePreview = new NextTripPreview(this.trip.tag);
+    }
+
+    init_menu() {
+        this.titleItem = new PopupMenu.PopupSeparatorMenuItem(this.trip.name);
         this.timeItems = [];
         for (let i = 0; i < 3; i++)
             this.timeItems.push(new PopupMenu.PopupMenuItem('N/A min'));
-        this.activated = true;
+    }
+
+    get_preview() {
+        return this.nextTimePreview.container;
     }
 
     getNextBusTimes() {
@@ -70,7 +89,7 @@ class TripItem {
         const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
         const nextTimes = busData
-            .filter(bus => bus.trip_id === this.tripId)
+            .filter(bus => bus.trip_id === this.trip.id)
             .map(bus => {
                 const [hours, minutes] = bus.arrival_time.split(':').map(Number);
                 return hours * 60 + minutes;
@@ -82,6 +101,7 @@ class TripItem {
 
         for (let i = 0; i < 3; i++)
             this.timeItems[i].label.text = nextTimes[i] !== undefined ? nextTimes[i] + " min" : "N/A min";
+        this.nextTimePreview.update_time = nextTimes[0] !== undefined ? nextTimes[0] + " min" : "N/A min";
     }
 }
 
@@ -146,6 +166,59 @@ function fetchBusStopTimes(nextBusButton) {
     });
 }
 
+class NextTripPreview {
+    constructor(busLabel) {
+        this._init(busLabel);
+    }
+
+    _init(busLabel) {
+        this.container = new St.BoxLayout({ vertical: false });
+        let busbox = new St.BoxLayout({ vertical: false });
+        let timebox = new St.BoxLayout({ vertical: false });
+
+        this.signInStatusLabel = new St.Label({ text: busLabel });
+        this.signInStatusLabel.set_style('font-weight: bold; font-size: 15px;');
+
+        this.timeLabel = new St.Label({ text: "X min" });
+        this.timeLabel.set_style('color: white; font-weight: bold; font-size: 15px;');
+
+        busbox.add_child(this.signInStatusLabel);
+        busbox.set_style(`
+            background-color: white;
+            color: rgb(236, 28, 36);
+            border: 2px solid rgb(236, 28, 36);
+            border-radius: 1px;
+            padding-left: 4px;
+            padding-right: 4px;
+            margin: 5px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `);
+
+        timebox.add_child(this.timeLabel);
+        timebox.set_style(`
+            background-color: darkgreen;
+            border-radius: 1px;
+            padding-left: 4px;
+            padding-right: 4px;
+            margin: 5px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `);
+
+        this.container.add_child(busbox);
+        this.container.add_child(timebox);
+    }
+
+    set update_time(text) {
+        this.timeLabel.text = text;
+    }
+}
+
 /**
  * Classe représentant le bouton du menu GNOME pour afficher les horaires des bus.
  */
@@ -153,16 +226,18 @@ const NextBusButton = GObject.registerClass(
 class NextBusButton extends PanelMenu.Button {
     _init() {
         super._init(0.0, _('NextBusButton'));
-
-        this.add_child(new St.Label({ text: _('LES BUS') }));
+        this.mainContainer = new St.BoxLayout({ vertical: false });
+        this.set_style(`
+            border-radius: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `);
 
         // Crée les item pour chaque trajet
         this.busItems = [];
         for(let i = 0; i < trips.length; i++)
-            this.busItems.push(new TripItem(trips[i].id, trips[i].name));
-
-        // Affiche les premières horaires dans la toolbar
-        
+            this.busItems.push(new TripItem(trips[i]));
 
         // Affiche les items dans le menu
         this.busItems.forEach(item => {
@@ -170,6 +245,7 @@ class NextBusButton extends PanelMenu.Button {
                 this.addTripItemToMenu(item);
         });
 
+        this.add_child(this.mainContainer);
         this.updateBusTimes(); // Mise à jour immédiate des horaires des bus
     }
 
@@ -178,6 +254,7 @@ class NextBusButton extends PanelMenu.Button {
         tripItem.timeItems.forEach(item => {
             this.menu.addMenuItem(item);
         });
+        this.mainContainer.add_child(tripItem.get_preview());
     }
 
     updateBusTimes() {
@@ -193,12 +270,11 @@ class Extension {
     constructor(uuid) {
         ExtensionUtils.initTranslations(GETTEXT_DOMAIN);
         this._uuid = uuid;
-        fetchBusStopTimes(this._NextBusButton);
     }
 
     enable() {
         this.createNextBusButton();
-
+        fetchBusStopTimes(this._NextBusButton);
         // Mise à jour des horaires toutes les 5 secondes
         GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             this._NextBusButton.updateBusTimes();
