@@ -174,7 +174,7 @@ class NextTripPreview {
     _init(busLabel) {
         this.container = new St.BoxLayout({ vertical: false });
         let busbox = new St.BoxLayout({ vertical: false });
-        let timebox = new St.BoxLayout({ vertical: false });
+        this.timebox = new St.BoxLayout({ vertical: false });
 
         this.signInStatusLabel = new St.Label({ text: busLabel });
         this.signInStatusLabel.set_style('font-weight: bold; font-size: 15px;');
@@ -197,9 +197,14 @@ class NextTripPreview {
             justify-content: center;
         `);
 
-        timebox.add_child(this.timeLabel);
-        timebox.set_style(`
-            background-color: darkgreen;
+        this.timebox.add_child(this.timeLabel);
+
+        this.container.add_child(busbox);
+        this.container.add_child(this.timebox);
+    }
+
+    set_time_style() {
+        var style = `
             border-radius: 1px;
             padding-left: 4px;
             padding-right: 4px;
@@ -208,14 +213,30 @@ class NextTripPreview {
             display: flex;
             align-items: center;
             justify-content: center;
-        `);
+        `;
 
-        this.container.add_child(busbox);
-        this.container.add_child(timebox);
+        var background_color;
+
+        // Extract time from timeLabel and check if it's a number
+        let time = parseInt(this.timeLabel.text);
+        if (isNaN(time)) {
+            time = 0;
+        }
+
+        if (time < 5) {
+            background_color = 'background-color: darkred;';
+        } else if (time < 10) {
+            background_color = 'background-color: darkorange;';
+        } else {
+            background_color = 'background-color: darkgreen;';
+        }
+
+        this.timebox.set_style(background_color + style);
     }
 
     set update_time(text) {
         this.timeLabel.text = text;
+        this.set_time_style();
     }
 }
 
