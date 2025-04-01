@@ -180,7 +180,6 @@ class NextTripPreview {
         this.signInStatusLabel.set_style('font-weight: bold; font-size: 15px;');
 
         this.timeLabel = new St.Label({ text: "N/A min" });
-        this.timeLabel.set_style('color: white; font-weight: bold; font-size: 15px;');
 
         busbox.add_child(this.signInStatusLabel);
         busbox.set_style(`
@@ -204,7 +203,7 @@ class NextTripPreview {
     }
 
     set_time_style() {
-        var style = `
+        var box_style = `
             border-radius: 1px;
             padding-left: 4px;
             padding-right: 4px;
@@ -213,25 +212,32 @@ class NextTripPreview {
             display: flex;
             align-items: center;
             justify-content: center;
+            background-color: black; /* Fond noir constant */
         `;
+        var text_style = 'font-weight: bold; font-size: 15px;';
+        var border_color;
 
-        var background_color;
-
-        // Extract time from timeLabel and check if it's a number
+        // Extraire le temps de timeLabel et vérifier si c'est un nombre
         let time = parseInt(this.timeLabel.text);
         if (isNaN(time)) {
             time = 0;
         }
 
-        if (time < 5) {
-            background_color = 'background-color: darkred;';
-        } else if (time < 10) {
-            background_color = 'background-color: darkorange;';
+        // Définir les couleurs en fonction de la valeur de time
+        if (time <= 5) {
+            text_style += 'color: tomato;';
+            box_style += 'border: 2px solid tomato;';
+        } else if (time <= 10) {
+            text_style += 'color: gold;';
+            box_style += 'border: 2px solid gold;';
         } else {
-            background_color = 'background-color: darkgreen;';
+            text_style += 'color: lightgreen;';
+            box_style += 'border: 2px solid lightgreen;';
         }
 
-        this.timebox.set_style(background_color + style);
+        // Appliquer le style combiné
+        this.timebox.set_style(box_style);
+        this.timeLabel.set_style(text_style);
     }
 
     set update_time(text) {
