@@ -28,6 +28,8 @@ const PopupMenu = imports.ui.popupMenu;
 const _ = ExtensionUtils.gettext;
 let metadata;
 
+const Me = ExtensionUtils.getCurrentExtension();
+const CoreLoader = Me.imports["core-loader"];
 
 // Chemin du fichier JSON contenant les horaires des bus
 const jsonPath = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
@@ -48,7 +50,6 @@ const trips = [
     // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5'),
 ];
 
-
 /**
  * Classe représentant un élément de trajet.
  */
@@ -65,7 +66,7 @@ class TripItem {
         this.titleItem = new PopupMenu.PopupSeparatorMenuItem(this.trip.name);
         this.timeItems = [];
         for (let i = 0; i < 3; i++)
-            this.timeItems.push(new PopupMenu.PopupMenuItem('N/A min'));
+            this.timeItems.push(new PopupMenu.PopupMenuItem('...'));
     }
 
     get_preview() {
@@ -100,70 +101,9 @@ class TripItem {
             .map(arrivalMinutes => arrivalMinutes - currentMinutes); // Conversion en minutes restantes
 
         for (let i = 0; i < 3; i++)
-            this.timeItems[i].label.text = nextTimes[i] !== undefined ? nextTimes[i] + " min" : "N/A min";
-        this.nextTimePreview.update_time = nextTimes[0] !== undefined ? nextTimes[0] + " min" : "N/A min";
+            this.timeItems[i].label.text = nextTimes[i] !== undefined ? nextTimes[i] + " min" : "...";
+        this.nextTimePreview.update_time = nextTimes[0] !== undefined ? nextTimes[0] + " min" : "...";
     }
-}
-
-/**
- * Lit un flux de données et retourne son contenu sous forme de promesse.
- */
-async function readStream(stream) {
-    return new Promise((resolve, reject) => {
-        stream.read_upto_async('\0', 1, GLib.PRIORITY_LOW, null, (src, res) => {
-            try {
-                const [str] = src.read_upto_finish(res);
-                src.close(null);
-                resolve(str);
-            } catch (error) {
-                reject(error);
-            }
-        });
-    });
-}
-
-/**
- * Exécute une commande shell de manière asynchrone et retourne son résultat
- */
-async function spawnCommandLineAsync(commandLine, callback = () => {}) {
-    let success, argv, pid, stdin, stdout, stderr;
-
-    try {
-        [success, argv] = GLib.shell_parse_argv(commandLine);
-        if (!success) throw new Error("Échec du parsing de la commande");
-
-        [success, pid, stdin, stdout, stderr] = GLib.spawn_async_with_pipes(
-            null, argv, null,
-            GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
-            null
-        );
-
-        GLib.close(stdin);
-        const outStream = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({ fd: stdout, close_fd: true }) });
-        const errStream = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({ fd: stderr, close_fd: true }) });
-        const [out, err] = await Promise.all([readStream(outStream), readStream(errStream)]);
-
-        callback(true, out, err, 0);
-    } catch (error) {
-        console.error("Erreur lors de l'exécution de la commande :", error);
-        callback(false, "", "", -1);
-    }
-}
-
-/**
- * Exécute un script Python pour récupérer les horaires des bus et affiche le résultat dans la console.
- * Utilise `spawnCommandLineAsync` pour exécuter le script `nextbus.py` et traite les erreurs.
- */
-function fetchBusStopTimes(nextBusButton) {
-    spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
-        if (result && status === 0) {
-            console.log(stdout);
-            nextBusButton.updateBusTimes();
-        }
-        else
-            console.error(stderr);
-        return result;
-    });
 }
 
 class NextTripPreview {
@@ -173,14 +113,13 @@ class NextTripPreview {
 
     _init(busLabel) {
         this.container = new St.BoxLayout({ vertical: false });
-        let busbox = new St.BoxLayout({ vertical: false });
+        this.timeLabel = new St.Label();
         this.timebox = new St.BoxLayout({ vertical: false });
-
+        
         this.signInStatusLabel = new St.Label({ text: busLabel });
         this.signInStatusLabel.set_style('font-weight: bold; font-size: 15px;');
-
-        this.timeLabel = new St.Label({ text: "N/A min" });
-
+        
+        let busbox = new St.BoxLayout({ vertical: false });
         busbox.add_child(this.signInStatusLabel);
         busbox.set_style(`
             background-color: white;
@@ -189,7 +128,7 @@ class NextTripPreview {
             border-radius: 1px;
             padding-left: 4px;
             padding-right: 4px;
-            margin: 5px;
+            margin: 5px 5px 5px 0px;
             text-align: center;
             display: flex;
             align-items: center;
@@ -200,6 +139,8 @@ class NextTripPreview {
 
         this.container.add_child(busbox);
         this.container.add_child(this.timebox);
+
+        this.update_time = "...";
     }
 
     set_time_style() {
@@ -207,24 +148,29 @@ class NextTripPreview {
             border-radius: 1px;
             padding-left: 4px;
             padding-right: 4px;
-            margin: 5px;
+            margin: 5px 5px 5px 0px;
             text-align: center;
             display: flex;
             align-items: center;
             justify-content: center;
             background-color: black; /* Fond noir constant */
         `;
-        var text_style = 'font-weight: bold; font-size: 15px;';
-        var border_color;
+        var text_style = `
+            font-weight: bold;
+            font-size: 15px;
+        `;
 
         // Extraire le temps de timeLabel et vérifier si c'est un nombre
         let time = parseInt(this.timeLabel.text);
         if (isNaN(time)) {
-            time = 0;
+            time = -1;
         }
 
         // Définir les couleurs en fonction de la valeur de time
-        if (time <= 5) {
+        if (time == -1) {
+            text_style += 'color: lightgray;';
+            box_style += 'border: 2px solid lightgray;';
+        } else if (time <= 5) {
             text_style += 'color: tomato;';
             box_style += 'border: 2px solid tomato;';
         } else if (time <= 10) {
@@ -293,15 +239,15 @@ class NextBusButton extends PanelMenu.Button {
 /**
  * Classe représentant l'extension GNOME.
  */
-class Extension {
+class NextBusExtension extends CoreLoader.ExtensionBase {
     constructor(uuid) {
+        super(uuid);
         ExtensionUtils.initTranslations(GETTEXT_DOMAIN);
-        this._uuid = uuid;
     }
 
-    enable() {
+    onEnable() {
+        this.#fetchBusStopTimes(this._NextBusButton);
         this.createNextBusButton();
-        fetchBusStopTimes(this._NextBusButton);
         // Mise à jour des horaires toutes les 5 secondes
         GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             this._NextBusButton.updateBusTimes();
@@ -309,7 +255,7 @@ class Extension {
         });
     }
 
-    disable() {
+    onDisable() {
         this.destroyNextBusButton();
     }
 
@@ -327,6 +273,22 @@ class Extension {
         this._NextBusButton.destroy();
         this._NextBusButton = null;
     }
+
+    /**
+     * Exécute un script Python pour récupérer les horaires des bus et affiche le résultat dans la console.
+     * Utilise `spawnCommandLineAsync` pour exécuter le script `nextbus.py` et traite les erreurs.
+     */
+    #fetchBusStopTimes(nextBusButton) {
+        CoreLoader.handler.spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
+            if (result && status === 0) {
+                console.log(stdout);
+                nextBusButton.updateBusTimes();
+            }
+            else
+                console.error(stderr);
+            return result;
+        });
+    }
 }
 
 /**
@@ -335,7 +297,6 @@ class Extension {
  * @returns {Extension} Instance de l'extension.
  */
 function init(meta) {
-    
     metadata = meta;
-    return new Extension(meta.uuid);
+    return new NextBusExtension(meta.uuid);
 }
