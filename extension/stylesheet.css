@@ -1,0 +1,47 @@
+/* Style général du conteneur */
+.bus-box, .time-box {
+    border-radius: 4px;
+    padding: 4px;
+    margin: 5px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Style de la boîte du bus */
+.bus-box {
+    background-color: white;
+    color: rgb(236, 28, 36);
+    border: 2px solid rgb(236, 28, 36);
+}
+
+/* Style du texte du bus */
+.bus-label {
+    font-weight: bold;
+    font-size: 15px;
+}
+
+/* Style de la boîte de temps */
+.time-box {
+    background-color: black;
+}
+
+/* Styles conditionnels pour la boîte de temps */
+.time-critical {
+    border: 2px solid tomato;
+}
+
+.time-warning {
+    border: 2px solid gold;
+}
+
+.time-normal {
+    border: 2px solid lightgreen;
+}
+
+/* Style du texte du temps */
+.time-label {
+    font-weight: bold;
+    font-size: 15px;
+}
