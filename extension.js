@@ -189,7 +189,8 @@ class NextTripPreview {
             border-radius: 1px;
             padding-left: 4px;
             padding-right: 4px;
-            margin: 5px;
+            margin-top: 5px;
+            margin-bottom: 5px;
             text-align: center;
             display: flex;
             align-items: center;
@@ -204,10 +205,15 @@ class NextTripPreview {
 
     set_time_style() {
         var box_style = `
-            border-radius: 1px;
+            border-top-width: 2px;
+            border-bottom-width: 2px;
+            border-right-width: 2px;
             padding-left: 4px;
             padding-right: 4px;
-            margin: 5px;
+            margin-right: 10px;
+            margin-top: 5px;
+            margin-bottom: 5px;
+            margin-left: 3px;
             text-align: center;
             display: flex;
             align-items: center;
@@ -226,13 +232,13 @@ class NextTripPreview {
         // Définir les couleurs en fonction de la valeur de time
         if (time <= 5) {
             text_style += 'color: tomato;';
-            box_style += 'border: 2px solid tomato;';
+            box_style += 'border-color: tomato;';
         } else if (time <= 10) {
             text_style += 'color: gold;';
-            box_style += 'border: 2px solid gold;';
+            box_style += 'border: gold;';
         } else {
             text_style += 'color: lightgreen;';
-            box_style += 'border: 2px solid lightgreen;';
+            box_style += 'border: lightgreen;';
         }
 
         // Appliquer le style combiné
