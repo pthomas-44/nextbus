@@ -147,19 +147,34 @@ class TripManager {
         return this.#getConsecutiveNextBuses(this.#buses.get(tripId) ?? [], fromTime, trip.nextBusesCount);
     }
 
-    #getConsecutiveNextBuses(arr, fromTime, size = 3) {
-        let startIndex = 0;
-        for (let i = 0; i < arr.length; i++) {
-            if (arr[i].normalizedTime > fromTime) {
-                startIndex = i;
-                break;
+    #getNextClosestTimeIndex(currentTime, times) {
+        let bestIndex = 0;
+        let bestDelta = Infinity;
+
+        for (let i = 0; i < times.length; i++) {
+            const t = times[i];
+            let delta = t.normalizedTime - currentTime - 1; // (-1 to avoid display 0 minutes)
+
+            if (delta < 0) {
+                delta += 24 * 60; // wrap to next day
+            }
+
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                bestIndex = i;
             }
         }
 
-        const maxSize = Math.min(size, arr.length);
+        return bestIndex;
+    }
+
+    #getConsecutiveNextBuses(times, fromTime, size = 3) {
+        let startIndex = this.#getNextClosestTimeIndex(fromTime, times);
+
+        const maxSize = Math.min(size, times.length);
         const result = [];
         for (let i = 0; i < maxSize; i++) {
-            result.push(arr[(startIndex + i) % arr.length]);
+            result.push(times[(startIndex + i) % times.length]);
         }
         return result;
     }
