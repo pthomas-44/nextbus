@@ -31,6 +31,8 @@ const UPDATE_INTERVAL = 5;
 const STOP_TIMES_JSON_PATH = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
 const WARNING_TIME = 10;
 const CRITICAL_TIME = 5;
+const MINUTES_PER_DAY = 24 * 60;
+const NO_BUS = Number.NEGATIVE_INFINITY;
 
 // #region utils
 function logError(error, message, notify) {
@@ -81,31 +83,112 @@ async function spawnCommandLineAsync(commandLine, callback = () => {}) {
 // #endregion
 
 class Trip {
-    constructor(id, name, tag) {
+    constructor(id, name, tag, nextBusesCount) {
         this.id = id;
         this.name = name;
         this.tag = tag;
+        this.nextBusesCount = nextBusesCount;
     }
 }
 
-const trips = [
-    new Trip('86A_18_2_040AM', '86 - Gorge de Loup', '86'),
-    // new Trip('86A_18_1_040AM', '86 - La Tour de Salvagny Chambettes', '86'),
-    new Trip('5A_34_2_046AB', '5 - Pont Mouton', '5'),
-    // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5'),
-];
+class Bus {
+    constructor(time) {
+        // note that 24, 25, etc hours are used instead of 01, 02 until the next day's service
+        this.normalizedTime = time % MINUTES_PER_DAY;
+        this.time = time;
+    }
+}
+
+class TripManager {
+    static instance;
+
+    #trips = new Map(); // Map of tripId -> trip
+    #buses = new Map(); // Map of tripId -> list of buses
+
+    constructor(trips) {
+        this.#trips = trips.reduce((acc, trip) => {
+            acc.set(trip.id, trip);
+            return acc;
+        }, new Map());
+
+        TripManager.instance = this;
+    }
+
+    reloadFromBuses(rawBuses) {
+        for (const rawBus of rawBuses) {
+            const tripId = rawBus['trip_id'];
+            if (this.#trips.has(tripId)) {
+                this.#insertBus(tripId, this.#parseBus(rawBus));
+            }
+        }
+
+        this.#buses.forEach(buses => buses.sort((a, b) => a.time - b.time))
+    }
+
+    getTrips() {
+        return this.#trips.values();
+    }
+
+    getTrip(tripId) {
+        return this.#trips.get(tripId);
+    }
+
+    getBuses(tripId) {
+        return this.#buses.get(tripId);
+    }
+
+    getNextBuses(tripId, fromTime) {
+        const trip = this.#trips.get(tripId);
+        if (trip == null) {
+            console.warn("Trying to get a non-existing trip")
+            return [];
+        }
+
+        return this.#getConsecutiveNextBuses(this.#buses.get(tripId) ?? [], fromTime, trip.nextBusesCount);
+    }
+
+    #getConsecutiveNextBuses(arr, fromTime, size = 3) {
+        let startIndex = 0;
+        for (let i = 0; i < arr.length; i++) {
+            if (arr[i].normalizedTime > fromTime) {
+                startIndex = i;
+                break;
+            }
+        }
+
+        const maxSize = Math.min(size, arr.length);
+        const result = [];
+        for (let i = 0; i < maxSize; i++) {
+            result.push(arr[(startIndex + i) % arr.length]);
+        }
+        return result;
+    }
+
+    #parseBus(bus) {
+        const [hours, minutes] = bus['arrival_time'].split(':').map(Number);
+        return new Bus(hours * 60 + minutes)
+    }
+
+    #insertBus(tripId, Bus) {
+        if (!this.#buses.has(tripId)) {
+            this.#buses.set(tripId, [Bus]);
+        } else {
+            this.#buses.get(tripId).push(Bus);
+        }
+    }
+}
 
 class TripItem {
     constructor(trip) {
         this.trip = trip;
         this.activated = true;
+        this.nextTimePreview = new NextTripPreview(trip.tag);
         this._initMenu();
-        this.nextTimePreview = new NextTripPreview(this.trip.tag);
     }
 
     _initMenu() {
         this.titleItem = new PopupMenu.PopupSeparatorMenuItem(this.trip.name);
-        this.timeItems = Array.from({ length: 3 }, () => new PopupMenu.PopupMenuItem(_('N/A min')));
+        this.timeItems = Array.from({ length: this.trip.nextBusesCount }, () => new PopupMenu.PopupMenuItem('...'));
     }
 
     get preview() {
@@ -113,60 +196,43 @@ class TripItem {
     }
 
     updateBusTimes() {
-        function formatTime(timeInMinutes) {
-            if (timeInMinutes === undefined) return _('N/A min');
-        
-            const hours = Math.floor(timeInMinutes / 60);
-            const minutes = timeInMinutes % 60;
+        function formatTime(busTime, difference) {
+            const hours = Math.floor(busTime / 60);
+            const minutes = busTime % 60;
+            const busTimeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
 
-            if (hours > 0) {
-                return `${hours} h ${minutes} min`;
+            const diffHours = Math.floor(difference / 60);
+            const diffMinutes = difference % 60;
+
+            if (diffHours > 0) {
+                return `${diffHours} h ${diffMinutes} min (${busTimeStr})`;
             } else {
-                return `${minutes} min`;
+                return `${diffMinutes} min (${busTimeStr})`;
             }
         }
 
-        if (!GLib.file_test(STOP_TIMES_JSON_PATH, GLib.FileTest.EXISTS))
-            return;
+        const currentTime = new Date().getHours() * 60 + new Date().getMinutes();
 
-        const [isOk, fileContent] = GLib.file_get_contents(STOP_TIMES_JSON_PATH);
-        if (!isOk) return;
+        const nextBuses = TripManager.instance.getNextBuses(this.trip.id, currentTime);        
+        this.timeItems.forEach((item, i) => {
+            const bus = nextBuses[i];
 
-        try {
-            const busData = JSON.parse(fileContent);
-            const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-            
-            const nextTimes = busData
-                .filter(bus => bus.trip_id === this.trip.id)
-                .map(bus => {
-                    const [hours, minutes] = bus.arrival_time.split(':').map(Number);
-                    return hours * 60 + minutes;
-                })
-                .filter(arrivalMinutes => arrivalMinutes > currentMinutes)
-                .sort((a, b) => a - b)
-                .slice(0, 3)
-                .map(arrivalMinutes => arrivalMinutes - currentMinutes);
-            
-            this.timeItems.forEach((item, i) => {
-                item.label.text = formatTime(nextTimes[i]);
-            });
+            if (bus == null) {
+                item.label.text = _('...');
+                if (i == 0) {
+                    this.nextTimePreview.updateTime = NO_BUS;
+                }
+            } else {
+                const busTime = bus.normalizedTime;
+                const difference = (busTime - currentTime + MINUTES_PER_DAY) % MINUTES_PER_DAY;
 
-            this.nextTimePreview.updateTime = this.timeItems[0].label.text;
-        } catch (e) {
-            logError(_('Error parsing JSON'), e, false);
-        }
+                item.label.text = formatTime(busTime, difference);
+                if (i == 0) {
+                    this.nextTimePreview.updateTime = difference;
+                }
+            }
+        });
     }
-}
-
-function fetchBusStopTimes(nextBusButton) {
-    spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
-        if (result && status === 0)
-            nextBusButton.updateBusTimes();
-        else
-            logError(_('Error fetching bus stop times'), stderr, true)
-            console.error(stderr);
-        return result;
-    });
 }
 
 class NextTripPreview {
@@ -179,30 +245,33 @@ class NextTripPreview {
         this.busBox = new St.BoxLayout({ vertical: false, style_class: 'bus-box' });
         this.timeBox = new St.BoxLayout({ vertical: false, style_class: 'time-box' });
         this.busLabel = new St.Label({ text: busLabel, style_class: 'bus-label' });
-        this.timeLabel = new St.Label({ text: "N/A min", style_class: 'time-label' });
-
+        this.timeLabel = new St.Label({ style_class: 'time-label' });
+        
         this.busBox.add_child(this.busLabel);
         this.timeBox.add_child(this.timeLabel);
         this.container.add_child(this.busBox);
         this.container.add_child(this.timeBox);
+        this.updateTime = NO_BUS;
     }
 
     _update_time_style() {
-        let time = parseInt(this.timeLabel.text, 10);
-        if (isNaN(time)) time = 0;
-
         // Supprime toutes les classes pour éviter les conflits de style
         // this.timeBox.remove_style_class_name('time-box-critical');
         // this.timeBox.remove_style_class_name('time-box-warning');
         // this.timeBox.remove_style_class_name('time-box-normal');
+        // this.timeBox.remove_style_class_name('time-box-loading');
         this.timeLabel.remove_style_class_name('time-label-critical');
         this.timeLabel.remove_style_class_name('time-label-warning');
         this.timeLabel.remove_style_class_name('time-label-normal');
+        this.timeLabel.remove_style_class_name('time-label-loading');
 
-        if (time <= 5) {
+        if (this.difference == NO_BUS) {
+            // this.timeBox.add_style_class_name('time-box-loading');
+            this.timeLabel.add_style_class_name('time-label-loading');
+        } if (this.difference <= 5) {
             // this.timeBox.add_style_class_name('time-box-critical');
             this.timeLabel.add_style_class_name('time-label-critical');
-        } else if (time <= 10) {
+        } else if (this.difference <= 10) {
             // this.timeBox.add_style_class_name('time-box-warning');
             this.timeLabel.add_style_class_name('time-label-warning');
         } else {
@@ -211,8 +280,23 @@ class NextTripPreview {
         }
     }
 
-    set updateTime(text) {
-        this.timeLabel.text = text;
+    set updateTime(difference) {
+        function formatTime(difference) {
+            const diffHours = Math.floor(difference / 60);
+            const diffMinutes = difference % 60;
+
+            if (diffHours > 0) {
+                return `${diffHours} h ${diffMinutes} min`;
+            } else {
+                return `${diffMinutes} min`;
+            }
+        }
+
+        this.difference = difference;
+        if (difference == NO_BUS)
+            this.timeLabel.text = '...';
+        else
+            this.timeLabel.text = formatTime(difference);
         this._update_time_style();
     }
 }
@@ -225,7 +309,11 @@ class NextBusButton extends PanelMenu.Button {
         super._init(0.0, _('NextBusButton'));
         this.mainContainer = new St.BoxLayout({ vertical: false, style_class: 'main-button' });
 
-        this.busItems = trips.map(trip => new TripItem(trip));
+        this.busItems = [];
+        for (const trip of TripManager.instance.getTrips()) {
+            this.busItems.push(new TripItem(trip));
+        }
+
         this.busItems.forEach(item => {
             if (item.activated)
                 this.addTripItemToMenu(item);
@@ -248,6 +336,13 @@ class NextBusButton extends PanelMenu.Button {
     }
 });
 
+new TripManager([
+    new Trip('86A_18_2_040AM', '86 - Gorge de Loup', '86', 4),
+    // new Trip('86A_18_1_040AM', '86 - La Tour de Salvagny Chambettes', '86', 4),
+    new Trip('5A_34_2_046AB', '5 - Pont Mouton', '5', 2),
+    // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5', 2),
+]);
+
 class Extension {
     constructor(uuid) {
         ExtensionUtils.initTranslations(GETTEXT_DOMAIN);
@@ -257,7 +352,7 @@ class Extension {
     enable() {
         this.createNextBusButton();
         this.createUpdater();
-        fetchBusStopTimes(this._nextBusButton);
+        this.#fetchBusStopTimes();
     }
 
     disable() {
@@ -284,13 +379,38 @@ class Extension {
         Main.panel._centerBox.remove_child(this._nextBusButton.container);
         this._nextBusButton.destroy();
         this._nextBusButton = null;
-        
     }
 
     destroyUpdater() {
         if (this._updateInterval) {
             GLib.source_remove(this._updateInterval);
             this._updateInterval = null;
+        }
+    }
+
+    #fetchBusStopTimes() {
+        spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
+            if (result && status === 0) {
+                this.#loadBusesStopsFile();
+            } else {
+                logError(_('Error fetching bus stop times'), stderr, true)
+                console.error(stderr);
+            }
+        });
+    }
+
+    #loadBusesStopsFile() {
+        if (!GLib.file_test(STOP_TIMES_JSON_PATH, GLib.FileTest.EXISTS))
+            return;
+        
+        const [isOk, fileContent] = GLib.file_get_contents(STOP_TIMES_JSON_PATH);
+        if (!isOk) return;
+        
+        try {
+            const busData = JSON.parse(fileContent);
+            TripManager.instance.reloadFromBuses(busData);
+        } catch (e) {
+            logError(_('Error parsing JSON'), e, false);
         }
     }
 }

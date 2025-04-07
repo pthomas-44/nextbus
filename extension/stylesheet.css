@@ -51,6 +51,10 @@
     border: 2px solid lightgreen;
 }
 
+.time-box-loading {
+    border: 2px solid lightgray;
+}
+
 .time-label-critical {
     color: tomato;
 }
@@ -63,7 +67,6 @@
     color: lightgreen;
 }
 
-
-
-
-
+.time-label-loading {
+    color: lightgray;
+}
