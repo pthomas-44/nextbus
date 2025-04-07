@@ -1,0 +1,69 @@
+.main-button {
+    border-radius: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bus-box, .time-box {
+    padding-left: 4px;
+    padding-right: 4px;
+    margin-top: 5px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bus-label, .time-label {
+    font-weight: bold;
+    font-size: 15px;
+}
+
+.bus-box {
+    background-color: white;
+    color: rgb(236, 28, 36);
+    border: 2px solid rgb(236, 28, 36);
+    border-radius: 1px;
+    margin-bottom: 5px;
+}
+
+.time-box {
+    /* border-top-width: 2px; */
+    /* border-bottom-width: 2px; */
+    /* border-right-width: 2px; */
+    margin-right: 10px;
+    margin-top: 7px;
+    /* margin-bottom: 5px; */
+    margin-left: 3px;
+    /* background-color: black; */
+}
+
+.time-box-critical {
+    border: 2px solid tomato;
+}
+
+.time-box-warning {
+    border: 2px solid gold;
+}
+
+.time-box-normal {
+    border: 2px solid lightgreen;
+}
+
+.time-label-critical {
+    color: tomato;
+}
+
+.time-label-warning {
+    color: gold;
+}
+
+.time-label-normal {
+    color: lightgreen;
+}
+
+
+
+
+
