@@ -256,7 +256,7 @@ class NextTripPreview {
     }
 
     _init(busLabel) {
-        this.container = new St.BoxLayout({ vertical: false });
+        this.container = new St.BoxLayout({ vertical: false, style_class: 'bus-preview' });
         this.busBox = new St.BoxLayout({ vertical: false, style_class: 'bus-box' });
         this.timeBox = new St.BoxLayout({ vertical: false, style_class: 'time-box' });
         this.busLabel = new St.Label({ text: busLabel, style_class: 'bus-label' });
