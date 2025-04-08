@@ -38,6 +38,13 @@ const CRITICAL_TIME = 5;
 const MINUTES_PER_DAY = 24 * 60;
 const NO_BUS = Number.NEGATIVE_INFINITY;
 
+function logError(error, message, notify) {
+    if (notify)
+        Main.notifyError(error, message);
+    else
+        log(`${error}: ${message}`);
+}
+
 class Trip {
     constructor(id, name, tag, nextBusesCount) {
         this.id = id;
