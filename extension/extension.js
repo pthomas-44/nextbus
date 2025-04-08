@@ -316,8 +316,6 @@ class NextTripPreview {
     }
 }
 
-// this.add_style_class_name('nextbus-button');
-
 const NextBusButton = GObject.registerClass(
 class NextBusButton extends PanelMenu.Button {
     _init() {
@@ -330,8 +328,9 @@ class NextBusButton extends PanelMenu.Button {
         }
 
         this.busItems.forEach(item => {
-            if (item.activated)
+            if (item.activated) {
                 this.addTripItemToMenu(item);
+            }
         });
         this.add_child(this.mainContainer);
         this.updateBusTimes();
@@ -394,18 +393,17 @@ class Extension {
     }
 
     #createNextBusButton() {
-        if (this._nextBusButton)
-            return;
-        this._nextBusButton = new NextBusButton();
-        Main.panel._centerBox.add_child(this._nextBusButton.container);
+        if (this._nextBusButton == null) {
+            this._nextBusButton = new NextBusButton();
+            Main.panel.addToStatusArea(this._uuid, this._nextBusButton, 4, 'center');
+        }
     }
 
     #destroyNextBusButton() {
-        if (!this._nextBusButton)
-            return;
-        Main.panel._centerBox.remove_child(this._nextBusButton.container);
-        this._nextBusButton.destroy();
-        this._nextBusButton = null;
+        if (this._nextBusButton != null) {
+            this._nextBusButton.destroy();
+            this._nextBusButton = null;
+        }
     }
 
     #fetchBusStopTimes() {
