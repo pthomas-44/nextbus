@@ -29,8 +29,10 @@ echo "Installing extension..."
 mkdir -p "$EXTENSION_PATH"
 cp extension/* "$EXTENSION_PATH"
 cp remove.sh "$EXTENSION_PATH"
+
+echo "🔄 Restarting GNOME and activating the extension..."
+killall -HUP gnome-shell
 gnome-extensions enable "$EXTENSION_NAME"
 
 echo "✅ Installation complete!"
-echo "🔄 Restart GNOME by pressing ALT + F2 and typing 'r' to apply changes."
 echo "🚀 You can now remove this repository."
