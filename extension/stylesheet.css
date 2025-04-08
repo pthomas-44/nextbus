@@ -28,11 +28,18 @@
     margin-bottom: 5px;
 }
 
+.bus-preview {
+    margin-right: 10px;
+}
+
+.bus-preview:last-child {
+    margin-right: 0;
+}
+
 .time-box {
     /* border-top-width: 2px; */
     /* border-bottom-width: 2px; */
     /* border-right-width: 2px; */
-    margin-right: 10px;
     margin-top: 7px;
     /* margin-bottom: 5px; */
     margin-left: 3px;
@@ -51,6 +58,10 @@
     border: 2px solid lightgreen;
 }
 
+.time-box-loading {
+    border: 2px solid lightgray;
+}
+
 .time-label-critical {
     color: tomato;
 }
@@ -63,7 +74,6 @@
     color: lightgreen;
 }
 
-
-
-
-
+.time-label-loading {
+    color: lightgray;
+}
