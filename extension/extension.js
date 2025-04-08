@@ -365,42 +365,47 @@ class Extension {
     }
 
     enable() {
-        this.createNextBusButton();
-        this.createUpdater();
+        this.#createNextBusButton();
+        this.#createUpdater();
         this.#fetchBusStopTimes();
     }
 
     disable() {
-        this.destroyNextBusButton();
+        this.#destroyUpdater();
+        this.#destroyNextBusButton();
     }
 
-    createNextBusButton() {
+    update() {
+        this._nextBusButton.updateBusTimes();
+    }
+
+    #createUpdater() {
+        this._updateInterval = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, UPDATE_INTERVAL, () => {
+            this.update();
+            return true;
+        });
+    }
+
+    #destroyUpdater() {
+        if (this._updateInterval) {
+            GLib.source_remove(this._updateInterval);
+            this._updateInterval = null;
+        }
+    }
+
+    #createNextBusButton() {
         if (this._nextBusButton)
             return;
         this._nextBusButton = new NextBusButton();
         Main.panel._centerBox.add_child(this._nextBusButton.container);
     }
 
-    createUpdater() {
-        this._updateInterval = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, UPDATE_INTERVAL, () => {
-            this._nextBusButton.updateBusTimes();
-            return true;
-        });
-    }
-
-    destroyNextBusButton() {
+    #destroyNextBusButton() {
         if (!this._nextBusButton)
             return;
         Main.panel._centerBox.remove_child(this._nextBusButton.container);
         this._nextBusButton.destroy();
         this._nextBusButton = null;
-    }
-
-    destroyUpdater() {
-        if (this._updateInterval) {
-            GLib.source_remove(this._updateInterval);
-            this._updateInterval = null;
-        }
     }
 
     #fetchBusStopTimes() {
@@ -424,6 +429,7 @@ class Extension {
         try {
             const busData = JSON.parse(fileContent);
             TripManager.instance.reloadFromBuses(busData);
+            this.update();
         } catch (e) {
             logError(_('Error parsing JSON'), e, false);
         }
