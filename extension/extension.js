@@ -32,7 +32,7 @@ const STOP_TIMES_JSON_PATH = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre
 const WARNING_TIME = 10;
 const CRITICAL_TIME = 5;
 const MINUTES_PER_DAY = 24 * 60;
-const NO_BUS = Number.NEGATIVE_INFINITY;
+const NO_BUS_STRING = '...';
 
 // #region utils
 function logError(error, message, notify) {
@@ -92,11 +92,46 @@ class Trip {
 }
 
 class Bus {
-    constructor(time) {
+    constructor(time, isLast = false) {
         // note that 24, 25, etc hours are used instead of 01, 02 until the next day's service
         this.normalizedTime = time % MINUTES_PER_DAY;
         this.time = time;
+        this.isLast = isLast;
+        this.deltaTime = -1;
     }
+
+    setDeltaTimeWith(other) {
+        this.deltaTime = (this.normalizedTime - other + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+        return this.deltaTime;
+    }
+}
+
+function busToString(bus, isPreview) {
+    if (bus == null) {
+        return NO_BUS_STRING;
+    }
+
+    let formattedParts = [];
+
+    if (bus.deltaTime > -1) {
+        const diffHours = Math.floor(bus.deltaTime / 60);
+        const diffMinutes = bus.deltaTime % 60;
+        formattedParts.push(diffHours > 0 ? `${diffHours} h ${diffMinutes} min` : `${diffMinutes} min`);
+    } else {
+        console.warn('You should not call busToString without calling setDeltaTimeWith before');
+    }
+
+    if (!isPreview) {
+        const hours = Math.floor(bus.normalizedTime / 60);
+        const minutes = bus.normalizedTime % 60;
+        formattedParts.push(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`);
+    }
+
+    if (bus.isLast) {
+        formattedParts.push(_(`(last bus)`));
+    }
+
+    return formattedParts.join(' ');
 }
 
 class TripManager {
@@ -122,7 +157,13 @@ class TripManager {
             }
         }
 
-        this.#buses.forEach(buses => buses.sort((a, b) => a.time - b.time))
+        this.#buses.forEach(buses => {
+            buses.sort((a, b) => a.time - b.time);
+            let lastBus = buses.at(-1);
+            if (lastBus != null) {
+                lastBus.isLast = true;
+            }
+        })
     }
 
     getTrips() {
@@ -198,12 +239,9 @@ class TripItem {
         this.trip = trip;
         this.activated = true;
         this.nextTimePreview = new NextTripPreview(trip.tag);
-        this._initMenu();
-    }
 
-    _initMenu() {
         this.titleItem = new PopupMenu.PopupSeparatorMenuItem(this.trip.name);
-        this.timeItems = Array.from({ length: this.trip.nextBusesCount }, () => new PopupMenu.PopupMenuItem('...'));
+        this.timeItems = Array.from({ length: this.trip.nextBusesCount }, () => new PopupMenu.PopupMenuItem(NO_BUS_STRING));
     }
 
     get preview() {
@@ -211,40 +249,16 @@ class TripItem {
     }
 
     updateBusTimes() {
-        function formatTime(busTime, difference) {
-            const hours = Math.floor(busTime / 60);
-            const minutes = busTime % 60;
-            const busTimeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
-
-            const diffHours = Math.floor(difference / 60);
-            const diffMinutes = difference % 60;
-
-            if (diffHours > 0) {
-                return `${diffHours} h ${diffMinutes} min (${busTimeStr})`;
-            } else {
-                return `${diffMinutes} min (${busTimeStr})`;
-            }
-        }
-
         const currentTime = new Date().getHours() * 60 + new Date().getMinutes();
 
         const nextBuses = TripManager.instance.getNextBuses(this.trip.id, currentTime);        
         this.timeItems.forEach((item, i) => {
             const bus = nextBuses[i];
+            bus?.setDeltaTimeWith(currentTime);
 
-            if (bus == null) {
-                item.label.text = _('...');
-                if (i == 0) {
-                    this.nextTimePreview.updateTime = NO_BUS;
-                }
-            } else {
-                const busTime = bus.normalizedTime;
-                const difference = (busTime - currentTime + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-
-                item.label.text = formatTime(busTime, difference);
-                if (i == 0) {
-                    this.nextTimePreview.updateTime = difference;
-                }
+            item.label.text = busToString(bus, false);
+            if (i == 0) {
+                this.nextTimePreview.setData(bus);
             }
         });
     }
@@ -252,10 +266,6 @@ class TripItem {
 
 class NextTripPreview {
     constructor(busLabel) {
-        this._init(busLabel);
-    }
-
-    _init(busLabel) {
         this.container = new St.BoxLayout({ vertical: false, style_class: 'bus-preview' });
         this.busBox = new St.BoxLayout({ vertical: false, style_class: 'bus-box' });
         this.timeBox = new St.BoxLayout({ vertical: false, style_class: 'time-box' });
@@ -266,10 +276,16 @@ class NextTripPreview {
         this.timeBox.add_child(this.timeLabel);
         this.container.add_child(this.busBox);
         this.container.add_child(this.timeBox);
-        this.updateTime = NO_BUS;
+        this.bus = null;
     }
 
-    _update_time_style() {
+    setData(bus) {
+        this.timeLabel.text = busToString(bus, true);
+        this.bus = bus;
+        this.#updateStyle();
+    }
+
+    #updateStyle() {
         // Supprime toutes les classes pour éviter les conflits de style
         // this.timeBox.remove_style_class_name('time-box-critical');
         // this.timeBox.remove_style_class_name('time-box-warning');
@@ -280,39 +296,19 @@ class NextTripPreview {
         this.timeLabel.remove_style_class_name('time-label-normal');
         this.timeLabel.remove_style_class_name('time-label-loading');
 
-        if (this.difference == NO_BUS) {
+        if (this.bus == null) {
             // this.timeBox.add_style_class_name('time-box-loading');
             this.timeLabel.add_style_class_name('time-label-loading');
-        } if (this.difference <= 5) {
+        } else if (this.bus.deltaTime <= 5) {
             // this.timeBox.add_style_class_name('time-box-critical');
             this.timeLabel.add_style_class_name('time-label-critical');
-        } else if (this.difference <= 10) {
+        } else if (this.bus.deltaTime <= 10) {
             // this.timeBox.add_style_class_name('time-box-warning');
             this.timeLabel.add_style_class_name('time-label-warning');
         } else {
             // this.timeBox.add_style_class_name('time-box-normal');
             this.timeLabel.add_style_class_name('time-label-normal');
         }
-    }
-
-    set updateTime(difference) {
-        function formatTime(difference) {
-            const diffHours = Math.floor(difference / 60);
-            const diffMinutes = difference % 60;
-
-            if (diffHours > 0) {
-                return `${diffHours} h ${diffMinutes} min`;
-            } else {
-                return `${diffMinutes} min`;
-            }
-        }
-
-        this.difference = difference;
-        if (difference == NO_BUS)
-            this.timeLabel.text = '...';
-        else
-            this.timeLabel.text = formatTime(difference);
-        this._update_time_style();
     }
 }
 
