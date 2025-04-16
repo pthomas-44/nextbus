@@ -12,6 +12,8 @@ if ! command -v gnome-extensions &> /dev/null; then
     exit 1
 fi
 
+sh ./prepare_db.sh
+
 if [ -d "$EXTENSION_PATH" ]; then
     echo "⚠️  The extension '$EXTENSION_NAME' is already installed."
     read -p "Do you want to reinstall it? (y/n): " choice
@@ -36,3 +38,4 @@ gnome-extensions enable "$EXTENSION_NAME"
 
 echo "✅ Installation complete!"
 echo "🚀 You can now remove this repository."
+echo "⚠️ This version generates the database only at install time. You may need to regenerate it after a few weeks."
