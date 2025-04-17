@@ -27,6 +27,10 @@ const PopupMenu = imports.ui.popupMenu;
 const _ = ExtensionUtils.gettext;
 
 let metadata;
+
+const Me = ExtensionUtils.getCurrentExtension();
+const CoreLoader = Me.imports["core-loader"];
+
 const UPDATE_INTERVAL = 5;
 const STOP_TIMES_JSON_PATH = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
 const WARNING_TIME = 10;
@@ -34,53 +38,12 @@ const CRITICAL_TIME = 5;
 const MINUTES_PER_DAY = 24 * 60;
 const NO_BUS_STRING = '...';
 
-// #region utils
 function logError(error, message, notify) {
     if (notify)
         Main.notifyError(error, message);
     else
         log(`${error}: ${message}`);
 }
-
-async function readStream(stream) {
-    return new Promise((resolve, reject) => {
-        stream.read_upto_async('\0', 1, GLib.PRIORITY_LOW, null, (src, res) => {
-            try {
-                const [str] = src.read_upto_finish(res);
-                src.close(null);
-                resolve(str);
-            } catch (error) {
-                reject(error);
-            }
-        });
-    });
-}
-
-async function spawnCommandLineAsync(commandLine, callback = () => {}) {
-    let success, argv, pid, stdin, stdout, stderr;
-
-    try {
-        [success, argv] = GLib.shell_parse_argv(commandLine);
-        if (!success) throw new Error("Échec du parsing de la commande");
-
-        [success, pid, stdin, stdout, stderr] = GLib.spawn_async_with_pipes(
-            null, argv, null,
-            GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
-            null
-        );
-
-        GLib.close(stdin);
-        const outStream = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({ fd: stdout, close_fd: true }) });
-        const errStream = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({ fd: stderr, close_fd: true }) });
-        const [out, err] = await Promise.all([readStream(outStream), readStream(errStream)]);
-
-        callback(true, out, err, 0);
-    } catch (error) {
-        console.error("Erreur lors de l'exécution de la commande :", error);
-        callback(false, "", "", -1);
-    }
-}
-// #endregion
 
 class Trip {
     constructor(id, name, tag, nextBusesCount) {
@@ -353,19 +316,19 @@ new TripManager([
     // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5', 2),
 ]);
 
-class Extension {
+class NextBusExtension extends CoreLoader.ExtensionBase {
     constructor(uuid) {
+        super(uuid);
         ExtensionUtils.initTranslations(GETTEXT_DOMAIN);
-        this._uuid = uuid;
     }
 
-    enable() {
+    onEnable() {
         this.#createNextBusButton();
         this.#createUpdater();
         this.#fetchBusStopTimes();
     }
 
-    disable() {
+    onDisable() {
         this.#destroyUpdater();
         this.#destroyNextBusButton();
     }
@@ -403,7 +366,7 @@ class Extension {
     }
 
     #fetchBusStopTimes() {
-        spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
+        CoreLoader.handler.spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
             if (result && status === 0) {
                 this.#loadBusesStopsFile();
             } else {
@@ -432,5 +395,5 @@ class Extension {
 
 function init(meta) {
     metadata = meta;
-    return new Extension(meta.uuid);
+    return new NextBusExtension(meta.uuid);
 }
