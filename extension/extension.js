@@ -141,8 +141,9 @@ function busToString(bus, isPreview) {
     let formattedParts = [];
 
     if (bus.deltaTime > -1) {
-        const diffHours = Math.floor(bus.deltaTime / 3600);
-        const diffMinutes = Math.floor((bus.deltaTime % 3600) / 60) % 60;
+        const modifiedDelta = bus.deltaTime + (1 * 60);
+        const diffHours = Math.floor(modifiedDelta / 3600);
+        const diffMinutes = Math.floor((modifiedDelta % 3600) / 60) % 60;
         formattedParts.push(diffHours > 0 ? `${diffHours} h ${diffMinutes} min` : `${diffMinutes} min`);
     } else {
         console.warn('You should not call busToString without calling setDeltaTimeWith before');
