@@ -345,7 +345,7 @@ class Extension {
     }
 
     update() {
-        const date = new Date(Date.now() + (7 * 3600 * 1000 + 21 * 60 * 1000));
+        const date = new Date();
         if (this.#shouldFetchTimes(date)) {
             this.#fetchBusStopTimes(date);
         } else {
