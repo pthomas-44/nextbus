@@ -29,7 +29,7 @@ fi
 
 echo "Installing extension..."
 mkdir -p "$EXTENSION_PATH"
-cp -r extension "$EXTENSION_PATH"
+cp -r extension/* "$EXTENSION_PATH"
 cp remove.sh "$EXTENSION_PATH"
 
 echo "🔄 Restarting GNOME and activating the extension..."
