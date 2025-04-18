@@ -31,7 +31,7 @@ const UPDATE_INTERVAL = 5;
 const STOP_TIMES_JSON_PATH = GLib.build_filenamev([GLib.get_home_dir(), 'goinfre', 'stop_times.json']);
 const WARNING_TIME = 10;
 const CRITICAL_TIME = 5;
-const MINUTES_PER_DAY = 24 * 60;
+const SECONDS_PER_DAY = 24 * 3600;
 const NO_BUS_STRING = '...';
 
 // #region utils
@@ -56,7 +56,7 @@ async function readStream(stream) {
     });
 }
 
-async function spawnCommandLineAsync(commandLine, callback = () => {}) {
+async function spawnCommandLineAsync(commandLine, working_directory = null, callback = () => { }) {
     let success, argv, pid, stdin, stdout, stderr;
 
     try {
@@ -64,7 +64,7 @@ async function spawnCommandLineAsync(commandLine, callback = () => {}) {
         if (!success) throw new Error("Échec du parsing de la commande");
 
         [success, pid, stdin, stdout, stderr] = GLib.spawn_async_with_pipes(
-            null, argv, null,
+            working_directory, argv, null,
             GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
             null
         );
@@ -74,19 +74,46 @@ async function spawnCommandLineAsync(commandLine, callback = () => {}) {
         const errStream = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({ fd: stderr, close_fd: true }) });
         const [out, err] = await Promise.all([readStream(outStream), readStream(errStream)]);
 
-        callback(true, out, err, 0);
+        callback(true, out ?? "", err ?? "", 0);
     } catch (error) {
         console.error("Erreur lors de l'exécution de la commande :", error);
         callback(false, "", "", -1);
     }
 }
+
+function upperBound(arr, target, mapper = e => e) {
+    let lo = 0, hi = arr.length - 1;
+    let res = arr.length;
+    while (lo <= hi) {
+        let mid = lo + Math.floor((hi - lo) / 2);
+        if (mapper(arr[mid]) > target) {
+            res = mid;
+            hi = mid - 1;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    return res;
+}
+
+function parseTime(hms) {
+    const [hours, minutes, seconds] = hms.split(':').map(e => parseInt(e));
+    return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+function dateTimeToDate(dateTime) {
+    const tmp = new Date(dateTime); // Modulo on miliseconds is not working (wrong timezones)
+    tmp.setHours(0, 0, 0, 0);
+    return tmp.getTime();
+}
 // #endregion
 
 class Trip {
-    constructor(id, name, tag, nextBusesCount) {
-        this.id = id;
-        this.name = name;
-        this.tag = tag;
+    constructor(stop, destination, route, nextBusesCount) {
+        this.uuid = GLib.uuid_string_random();
+        this.stop = stop;
+        this.destination = destination;
+        this.route = route;
         this.nextBusesCount = nextBusesCount;
     }
 }
@@ -94,14 +121,14 @@ class Trip {
 class Bus {
     constructor(time, isLast = false) {
         // note that 24, 25, etc hours are used instead of 01, 02 until the next day's service
-        this.normalizedTime = time % MINUTES_PER_DAY;
+        this.normalizedTime = time % SECONDS_PER_DAY;
         this.time = time;
         this.isLast = isLast;
         this.deltaTime = -1;
     }
 
     setDeltaTimeWith(other) {
-        this.deltaTime = (this.normalizedTime - other + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+        this.deltaTime = (this.normalizedTime - other + SECONDS_PER_DAY) % SECONDS_PER_DAY;
         return this.deltaTime;
     }
 }
@@ -114,16 +141,16 @@ function busToString(bus, isPreview) {
     let formattedParts = [];
 
     if (bus.deltaTime > -1) {
-        const diffHours = Math.floor(bus.deltaTime / 60);
-        const diffMinutes = bus.deltaTime % 60;
+        const diffHours = Math.floor(bus.deltaTime / 3600);
+        const diffMinutes = Math.floor((bus.deltaTime % 3600) / 60) % 60;
         formattedParts.push(diffHours > 0 ? `${diffHours} h ${diffMinutes} min` : `${diffMinutes} min`);
     } else {
         console.warn('You should not call busToString without calling setDeltaTimeWith before');
     }
 
     if (!isPreview) {
-        const hours = Math.floor(bus.normalizedTime / 60);
-        const minutes = bus.normalizedTime % 60;
+        const hours = Math.floor(bus.normalizedTime / 3600);
+        const minutes = Math.floor((bus.normalizedTime % 3600) / 60) % 60;
         formattedParts.push(`(${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")})`);
     }
 
@@ -137,100 +164,47 @@ function busToString(bus, isPreview) {
 class TripManager {
     static instance;
 
-    #trips = new Map(); // Map of tripId -> trip
-    #buses = new Map(); // Map of tripId -> list of buses
+    #trips = new Map(); // Map of trip uuid -> trip
+    #buses = new Map(); // Map of trip uuid -> list of buses
 
     constructor(trips) {
         this.#trips = trips.reduce((acc, trip) => {
-            acc.set(trip.id, trip);
+            acc.set(trip.uuid, trip);
             return acc;
         }, new Map());
 
         TripManager.instance = this;
     }
 
-    reloadFromBuses(rawBuses) {
-        for (const rawBus of rawBuses) {
-            const tripId = rawBus['trip_id'];
-            if (this.#trips.has(tripId)) {
-                this.#insertBus(tripId, this.#parseBus(rawBus));
-            }
-        }
-
-        this.#buses.forEach(buses => {
-            buses.sort((a, b) => a.time - b.time);
-            let lastBus = buses.at(-1);
-            if (lastBus != null) {
-                lastBus.isLast = true;
-            }
-        })
+    setTimesForTrip(trip, times) {
+        this.#buses.set(trip.uuid, times.map((time, i, array) => new Bus(time, (i == array.length - 1))));
     }
 
     getTrips() {
         return this.#trips.values();
     }
 
-    getTrip(tripId) {
-        return this.#trips.get(tripId);
+    getTrip(tripUuid) {
+        return this.#trips.get(tripUuid);
     }
 
-    getBuses(tripId) {
-        return this.#buses.get(tripId);
+    getBuses(tripUuid) {
+        return this.#buses.get(tripUuid);
     }
 
-    getNextBuses(tripId, fromTime) {
-        const trip = this.#trips.get(tripId);
+    getNextBuses(tripUuid, fromTime) {
+        const trip = this.getTrip(tripUuid);
         if (trip == null) {
             console.warn("Trying to get a non-existing trip")
             return [];
         }
 
-        return this.#getConsecutiveNextBuses(this.#buses.get(tripId) ?? [], fromTime, trip.nextBusesCount);
+        return this.#getConsecutiveNextBuses(this.#buses.get(tripUuid) ?? [], fromTime, trip.nextBusesCount);
     }
 
-    #getNextClosestTimeIndex(currentTime, times) {
-        let bestIndex = 0;
-        let bestDelta = Infinity;
-
-        for (let i = 0; i < times.length; i++) {
-            const t = times[i];
-            let delta = t.normalizedTime - currentTime - 1; // (-1 to avoid display 0 minutes)
-
-            if (delta < 0) {
-                delta += 24 * 60; // wrap to next day
-            }
-
-            if (delta < bestDelta) {
-                bestDelta = delta;
-                bestIndex = i;
-            }
-        }
-
-        return bestIndex;
-    }
-
-    #getConsecutiveNextBuses(times, fromTime, size = 3) {
-        let startIndex = this.#getNextClosestTimeIndex(fromTime, times);
-
-        const maxSize = Math.min(size, times.length);
-        const result = [];
-        for (let i = 0; i < maxSize; i++) {
-            result.push(times[(startIndex + i) % times.length]);
-        }
-        return result;
-    }
-
-    #parseBus(bus) {
-        const [hours, minutes] = bus['arrival_time'].split(':').map(Number);
-        return new Bus(hours * 60 + minutes)
-    }
-
-    #insertBus(tripId, Bus) {
-        if (!this.#buses.has(tripId)) {
-            this.#buses.set(tripId, [Bus]);
-        } else {
-            this.#buses.get(tripId).push(Bus);
-        }
+    #getConsecutiveNextBuses(times, fromTime, count = 3) {
+        const startIndex = upperBound(times, fromTime, e => e.time);
+        return times.slice(startIndex, startIndex + count);
     }
 }
 
@@ -238,7 +212,7 @@ class TripItem {
     constructor(trip) {
         this.trip = trip;
         this.activated = true;
-        this.nextTimePreview = new NextTripPreview(trip.tag);
+        this.nextTimePreview = new NextTripPreview(trip.route);
 
         this.titleItem = new PopupMenu.PopupSeparatorMenuItem(this.trip.name);
         this.timeItems = Array.from({ length: this.trip.nextBusesCount }, () => new PopupMenu.PopupMenuItem(NO_BUS_STRING));
@@ -248,10 +222,10 @@ class TripItem {
         return this.nextTimePreview.container;
     }
 
-    updateBusTimes() {
-        const currentTime = new Date().getHours() * 60 + new Date().getMinutes();
+    updateBusTimes(date) {
+        const currentTime = (date.getHours() * 3600) + (date.getMinutes() * 60) + date.getSeconds();
 
-        const nextBuses = TripManager.instance.getNextBuses(this.trip.id, currentTime);        
+        const nextBuses = TripManager.instance.getNextBuses(this.trip.uuid, currentTime);
         this.timeItems.forEach((item, i) => {
             const bus = nextBuses[i];
             bus?.setDeltaTimeWith(currentTime);
@@ -271,12 +245,13 @@ class NextTripPreview {
         this.timeBox = new St.BoxLayout({ vertical: false, style_class: 'time-box' });
         this.busLabel = new St.Label({ text: busLabel, style_class: 'bus-label' });
         this.timeLabel = new St.Label({ style_class: 'time-label' });
-        
+
         this.busBox.add_child(this.busLabel);
         this.timeBox.add_child(this.timeLabel);
         this.container.add_child(this.busBox);
         this.container.add_child(this.timeBox);
         this.bus = null;
+        this.#updateStyle();
     }
 
     setData(bus) {
@@ -299,10 +274,10 @@ class NextTripPreview {
         if (this.bus == null) {
             // this.timeBox.add_style_class_name('time-box-loading');
             this.timeLabel.add_style_class_name('time-label-loading');
-        } else if (this.bus.deltaTime <= 5) {
+        } else if (this.bus.deltaTime <= (5 * 60)) {
             // this.timeBox.add_style_class_name('time-box-critical');
             this.timeLabel.add_style_class_name('time-label-critical');
-        } else if (this.bus.deltaTime <= 10) {
+        } else if (this.bus.deltaTime <= (10 * 60)) {
             // this.timeBox.add_style_class_name('time-box-warning');
             this.timeLabel.add_style_class_name('time-label-warning');
         } else {
@@ -313,47 +288,46 @@ class NextTripPreview {
 }
 
 const NextBusButton = GObject.registerClass(
-class NextBusButton extends PanelMenu.Button {
-    _init() {
-        super._init(0.0, _('NextBusButton'));
-        this.mainContainer = new St.BoxLayout({ vertical: false, style_class: 'main-button' });
+    class NextBusButton extends PanelMenu.Button {
+        _init() {
+            super._init(0.0, _('NextBusButton'));
+            this.mainContainer = new St.BoxLayout({ vertical: false, style_class: 'main-button' });
 
-        this.busItems = [];
-        for (const trip of TripManager.instance.getTrips()) {
-            this.busItems.push(new TripItem(trip));
+            this.busItems = [];
+            for (const trip of TripManager.instance.getTrips()) {
+                this.busItems.push(new TripItem(trip));
+            }
+
+            this.busItems.forEach(item => {
+                if (item.activated) {
+                    this.addTripItemToMenu(item);
+                }
+            });
+            this.add_child(this.mainContainer);
         }
 
-        this.busItems.forEach(item => {
-            if (item.activated) {
-                this.addTripItemToMenu(item);
-            }
-        });
-        this.add_child(this.mainContainer);
-        this.updateBusTimes();
-    }
+        addTripItemToMenu(tripItem) {
+            this.menu.addMenuItem(tripItem.titleItem);
+            tripItem.timeItems.forEach(item => {
+                this.menu.addMenuItem(item);
+            });
+            this.mainContainer.add_child(tripItem.preview);
+        }
 
-    addTripItemToMenu(tripItem) {
-        this.menu.addMenuItem(tripItem.titleItem);
-        tripItem.timeItems.forEach(item => {
-            this.menu.addMenuItem(item);
-        });
-        this.mainContainer.add_child(tripItem.preview);
-    }
-
-    updateBusTimes() {
-        for (let tripItem of this.busItems)
-            tripItem.updateBusTimes();
-    }
-});
+        updateBusTimes(date) {
+            for (let tripItem of this.busItems)
+                tripItem.updateBusTimes(date);
+        }
+    });
 
 new TripManager([
-    new Trip('86A_18_2_040AM', '86 - Gorge de Loup', '86', 4),
-    // new Trip('86A_18_1_040AM', '86 - La Tour de Salvagny Chambettes', '86', 4),
-    new Trip('5A_34_2_046AB', '5 - Pont Mouton', '5', 2),
-    // new Trip('5A_34_1_046AB', '5 - Charbonnières Les Verrières', '5', 2),
+    new Trip('Campus Région numérique', 'Gorge de Loup', '86', 4),
+    new Trip('Campus Région numérique', 'Pont Mouton', '5', 2),
 ]);
 
 class Extension {
+    #lastFetchedDate = null;
+
     constructor(uuid) {
         ExtensionUtils.initTranslations(GETTEXT_DOMAIN);
         this._uuid = uuid;
@@ -362,7 +336,7 @@ class Extension {
     enable() {
         this.#createNextBusButton();
         this.#createUpdater();
-        this.#fetchBusStopTimes();
+        this.update();
     }
 
     disable() {
@@ -371,7 +345,12 @@ class Extension {
     }
 
     update() {
-        this._nextBusButton.updateBusTimes();
+        const date = new Date(Date.now() + (7 * 3600 * 1000 + 21 * 60 * 1000));
+        if (this.#shouldFetchTimes(date)) {
+            this.#fetchBusStopTimes(date);
+        } else {
+            this._nextBusButton.updateBusTimes(date);
+        }
     }
 
     #createUpdater() {
@@ -402,30 +381,29 @@ class Extension {
         }
     }
 
-    #fetchBusStopTimes() {
-        spawnCommandLineAsync(`python3 ${metadata.path}/nextbus.py`, (result, stdout, stderr, status) => {
-            if (result && status === 0) {
-                this.#loadBusesStopsFile();
-            } else {
-                logError(_('Error fetching bus stop times'), stderr, true)
-                console.error(stderr);
-            }
-        });
+    #shouldFetchTimes(todayDate) {
+        return this.#lastFetchedDate != dateTimeToDate(todayDate);
     }
 
-    #loadBusesStopsFile() {
-        if (!GLib.file_test(STOP_TIMES_JSON_PATH, GLib.FileTest.EXISTS))
-            return;
-        
-        const [isOk, fileContent] = GLib.file_get_contents(STOP_TIMES_JSON_PATH);
-        if (!isOk) return;
-        
-        try {
-            const busData = JSON.parse(fileContent);
-            TripManager.instance.reloadFromBuses(busData);
-            this.update();
-        } catch (e) {
-            logError(_('Error parsing JSON'), e, false);
+    #fetchBusStopTimes(todayDate) {
+        this.#lastFetchedDate = dateTimeToDate(todayDate);
+
+        const year = todayDate.getFullYear();
+        const month = String(todayDate.getMonth() + 1).padStart(2, '0');
+        const day = String(todayDate.getDate()).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${day}`;
+
+        for (const trip of TripManager.instance.getTrips()) {
+            spawnCommandLineAsync(`sh get_times.sh "tcl_gtfs.sqlite" "${trip.stop}" "${trip.destination}" "${trip.route}" "${formattedDate}"`, metadata.path, (result, stdout, stderr, status) => {
+                if (result && status === 0) {
+                    const times = stdout.trim().split('\n').map(parseTime);
+                    TripManager.instance.setTimesForTrip(trip, times);
+                    this.update(todayDate);
+                } else {
+                    logError(_('Error fetching bus stop times'), stderr, true)
+                    console.error(stderr);
+                }
+            });
         }
     }
 }
