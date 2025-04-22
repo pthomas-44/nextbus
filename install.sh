@@ -18,7 +18,7 @@ if [ $((version_number[0])) -ne 42 ]; then
 fi
 
 echo "Checking dependencies..."
-if ! command -v gnome-extensions &>/dev/null; then
+if ! command -v gnome-extensions &> /dev/null; then
     echo "The GNOME Extensions tool is not installed."
     echo "Please install it using:"
     echo "    sudo apt install -y gnome-shell-extension-prefs gnome-shell-extensions"
