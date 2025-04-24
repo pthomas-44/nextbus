@@ -4,19 +4,6 @@ EXTENSION_NAME="nextbus@42toolbar"
 EXTENSIONS_DIR="$HOME/.local/share/gnome-shell/extensions"
 EXTENSION_PATH="$EXTENSIONS_DIR/$EXTENSION_NAME"
 
-echo "Checking Gnome compatibility"
-
-version_line="$(gnome-shell --version)"
-
-IFS=' ' read -r -a array <<<"$version_line"
-
-IFS='.' read -r -a version_number <<<"${array[2]}"
-
-if [ $((version_number[0])) -ne 42 ]; then
-    echo "Extension only compatible with GNOME <= 42.X, you have version ${array[2]}"
-    exit 1
-fi
-
 echo "Checking dependencies..."
 if ! command -v gnome-extensions &> /dev/null; then
     echo "The GNOME Extensions tool is not installed."
@@ -24,6 +11,16 @@ if ! command -v gnome-extensions &> /dev/null; then
     echo "    sudo apt install -y gnome-shell-extension-prefs gnome-shell-extensions"
     exit 1
 fi
+
+echo "Checking Gnome compatibility"
+version_line="$(gnome-shell --version)"
+IFS=' ' read -r -a array <<<"$version_line"
+IFS='.' read -r -a version_number <<<"${array[2]}"
+if [ $((version_number[0])) -ne 42 ]; then
+    echo "Extension only compatible with GNOME <= 42.X, you have version ${array[2]}"
+    exit 1
+fi
+
 
 sh ./prepare_db.sh
 
