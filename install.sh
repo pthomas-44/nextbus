@@ -12,15 +12,14 @@ if ! command -v gnome-extensions &> /dev/null; then
     exit 1
 fi
 
-echo "Checking Gnome compatibility"
+echo "Checking Gnome compatibility..."
 version_line="$(gnome-shell --version)"
 IFS=' ' read -r -a array <<<"$version_line"
 IFS='.' read -r -a version_number <<<"${array[2]}"
-if [ $((version_number[0])) -ne 42 ]; then
+if [ $((version_number[0])) -gt 42 ]; then
     echo "Extension only compatible with GNOME <= 42.X, you have version ${array[2]}"
     exit 1
 fi
-
 
 sh ./prepare_db.sh
 
