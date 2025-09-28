@@ -21,7 +21,7 @@ PASSWORD="demo4dev"
 
 mkdir -p "$EXTRACT_PATH"
 curl -u "$USERNAME:$PASSWORD" -o "$ZIP_PATH" "$ZIP_URL"
-unzip "$ZIP_PATH" -d "$EXTRACT_PATH"
+unzip -o "$ZIP_PATH" -d "$EXTRACT_PATH"
 rm "$ZIP_PATH"
 
 #############################

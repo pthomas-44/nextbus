@@ -49,8 +49,8 @@ CREATE TABLE routes (
     route_desc TEXT,
     route_type INTEGER,
     -- route_url TEXT,
-    route_color TEXT
-    -- route_text_color TEXT
+    route_color TEXT,
+    route_text_color TEXT
 );
 .import {{GTFS_PATH}}/routes.txt routes
 
@@ -58,16 +58,16 @@ CREATE TABLE routes (
 DROP TABLE IF EXISTS stops;
 CREATE TABLE stops (
     stop_id TEXT NOT NULL PRIMARY KEY,
-    -- stop_code TEXT,
+    stop_code TEXT,
     stop_name TEXT,
     -- stop_desc TEXT,
     stop_lat REAL,
     stop_lon REAL,
-    -- zone_id TEXT,
+    zone_id TEXT,
     -- stop_url TEXT,
     location_type INTEGER,
     parent_station TEXT,
-    -- stop_timezone TEXT,
+    stop_timezone TEXT,
     wheelchair_boarding INTEGER
 );
 .import {{GTFS_PATH}}/stops.txt stops
@@ -109,11 +109,11 @@ CREATE TABLE trips (
     service_id TEXT,
     trip_id TEXT NOT NULL PRIMARY KEY,
     trip_headsign TEXT,
-    -- trip_short_name TEXT,
-    -- direction_id INTEGER,
+    trip_short_name TEXT,
+    direction_id INTEGER,
     -- block_id TEXT,
-    -- shape_id TEXT,
-    wheelchair_accessible INTEGER
-    -- bikes_allowed INTEGER
+    shape_id TEXT,
+    wheelchair_accessible INTEGER,
+    bikes_allowed INTEGER
 );
 .import {{GTFS_PATH}}/trips.txt trips
